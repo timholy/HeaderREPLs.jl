@@ -277,6 +277,11 @@ function refresh_header(s, repl::HeaderREPL)
     repl.cleared = false
 end
 
+function respond(f, repl::HeaderREPL, main; pass_empty = false)  # this does *not* extend REPL.respond
+    repl.cleared = true
+    REPL.respond(f, repl, main; pass_empty=pass_empty)
+end
+
 init_state(header::AbstractHeader, terminal, prompt) = init_state(terminal, prompt)
 
 setup_interface(
