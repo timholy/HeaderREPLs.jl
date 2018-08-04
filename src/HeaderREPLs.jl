@@ -206,9 +206,11 @@ function REPL.LineEdit.activate(p::Prompt, s::ModeState, termbuf, term::TextTerm
     REPL.LineEdit.activate(p.repl, s, termbuf, term)
 end
 function REPL.LineEdit.activate(repl::HeaderREPL, s::ModeState, termbuf, term::TextTerminal)
+    repl.cleared = true
+    print_header(term, repl.header)
     s.ias = REPL.LineEdit.InputAreaState(0, 0)
-    REPL.LineEdit.refresh_line(s, termbuf)
-    refresh_header(repl, s, termbuf, term)
+    LineEdit.refresh_line(s, termbuf)
+    repl.cleared = false
     nothing
 end
 function REPL.LineEdit.activate(::AbstractREPL, s::ModeState, termbuf, term::TextTerminal)
