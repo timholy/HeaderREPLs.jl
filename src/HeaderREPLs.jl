@@ -189,8 +189,8 @@ function mode_termination_keymap(repl::HeaderREPL, default_prompt::Prompt; copyb
     end,
     "^C" => function (s,o...)
         LineEdit.move_input_end(s)
-        LineEdit.refresh_line(s)
-        print(LineEdit.terminal(s), "^C\n\n")
+        repl.cleared = true
+        print(terminal(s), "^C\n\n")
         transition(s, default_prompt)
         transition(s, :reset)
         LineEdit.refresh_line(s)
@@ -206,7 +206,6 @@ function REPL.LineEdit.activate(p::Prompt, s::ModeState, termbuf, term::TextTerm
     REPL.LineEdit.activate(p.repl, s, termbuf, term)
 end
 function REPL.LineEdit.activate(repl::HeaderREPL, s::ModeState, termbuf, term::TextTerminal)
-    push!(msgs, ("got activated",))
     s.ias = REPL.LineEdit.InputAreaState(0, 0)
     REPL.LineEdit.refresh_line(s, termbuf)
     refresh_header(repl, s, termbuf, term)
@@ -216,6 +215,18 @@ function REPL.LineEdit.activate(::AbstractREPL, s::ModeState, termbuf, term::Tex
     s.ias = REPL.LineEdit.InputAreaState(0, 0)
     REPL.LineEdit.refresh_line(s, termbuf)
     nothing
+end
+
+function REPL.LineEdit.deactivate(p::Prompt, s::ModeState, termbuf, term::TextTerminal)
+    REPL.LineEdit.deactivate(p.repl, s, termbuf, term)
+end
+function REPL.LineEdit.deactivate(repl::HeaderREPL, s::ModeState, termbuf, term::TextTerminal)
+    clear_io(s, repl)
+    return s
+end
+function REPL.LineEdit.deactivate(::AbstractREPL, s::ModeState, termbuf, term::TextTerminal)
+    REPL.LineEdit.clear_input_area(termbuf, s)
+    return s
 end
 
 ## Generic implementations
@@ -241,7 +252,7 @@ function clear_io(s, repl::HeaderREPL)
         repl.cleared = true
     end
 end
-# clear_io(s::MIState, repl::HeaderREPL) = clear_io(terminal(s), repl)
+clear_io(s::MIState, repl::HeaderREPL) = clear_io(state(s), repl)
 
 function refresh_header(repl::HeaderREPL, s::MIState, termbuf, terminal::UnixTerminal)
     clear_io(s, repl)

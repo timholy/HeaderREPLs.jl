@@ -74,9 +74,10 @@ REPL.setup_interface(repl; extra_repl_keymap=special_keys)
 # (Normally you'd use the atreplinit mechanism)
 function enter_count(s)
     prompt = find_prompt(s, "count")
-    transition(s, prompt) do
-        refresh_header(s, prompt.repl)
-    end
+    # transition(s, prompt) do
+    #     refresh_header(s, prompt.repl)
+    # end
+    transition(s, prompt)
 end
 julia_prompt = find_prompt(main_repl.interface, "julia")
 julia_prompt.keymap_dict['|'] = (s, o...) -> enter_count(s)
