@@ -1,19 +1,19 @@
 using HeaderREPLs, REPL
 using Test
 
-using REPL.LineEdit: transition
+using REPL.LineEdit: transition, state
 
 mutable struct CountingHeader <: AbstractHeader
     n::Int
 end
 
-function HeaderREPLs.print_header(terminal, header::CountingHeader)
+function HeaderREPLs.print_header(io::IO, header::CountingHeader)
     if header.n > 0
-        HeaderREPLs.cmove_col(terminal, 1)
-        HeaderREPLs.clear_line(terminal)
-        printstyled(terminal, "Header:\n"; color=:light_magenta)
+        HeaderREPLs.cmove_col(io, 1)
+        HeaderREPLs.clear_line(io)
+        printstyled(io, "Header:\n"; color=:light_magenta)
         for i = 1:header.n
-            printstyled(terminal, "  ", i, '\n'; color=:light_blue)
+            printstyled(io, "  ", i, '\n'; color=:light_blue)
         end
     end
 end
@@ -52,8 +52,14 @@ function HeaderREPLs.append_keymaps!(keymaps, repl::HeaderREPL{CountingHeader})
     append!(keymaps, kms)
 end
 
-increment(s, repl) = (clear_io(repl, s); repl.header.n += 1; refresh_header(repl, s))
-decrement(s, repl) = (clear_io(repl, s); repl.header.n = max(0, repl.header.n-1); refresh_header(repl, s))
+function modify(s, repl, diff)
+    clear_io(state(s), repl)
+    repl.header.n = max(0, repl.header.n + diff)
+    refresh_header(s, repl)
+end
+
+@noinline increment(s, repl) = modify(s, repl, +1)
+@noinline decrement(s, repl) = modify(s, repl, -1)
 
 special_keys = Dict{Any,Any}(
     '+' => (s, repl, str) -> increment(s, repl),
@@ -64,13 +70,13 @@ main_repl = Base.active_repl
 repl = HeaderREPL(main_repl, CountingHeader(0))
 REPL.setup_interface(repl; extra_repl_keymap=special_keys)
 
-# Modify repl keymap so ')' enters the count> prompt
+# Modify repl keymap so '|' enters the count> prompt
 # (Normally you'd use the atreplinit mechanism)
 function enter_count(s)
     prompt = find_prompt(s, "count")
     transition(s, prompt) do
-        refresh_header(prompt.repl, s)
+        refresh_header(s, prompt.repl)
     end
 end
 julia_prompt = find_prompt(main_repl.interface, "julia")
-julia_prompt.keymap_dict[')'] = (s, o...) -> enter_count(s)
+julia_prompt.keymap_dict['|'] = (s, o...) -> enter_count(s)

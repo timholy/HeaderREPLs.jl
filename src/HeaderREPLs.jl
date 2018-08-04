@@ -4,9 +4,10 @@ using REPL
 using REPL.LineEdit, REPL.Terminals
 using REPL.Terminals: TextTerminal
 using REPL.Terminals: cmove_up, cmove_col, clear_line
-using REPL.LineEdit: TextInterface, MIState
+using REPL.LineEdit: TextInterface, MIState, ModeState
 using REPL.LineEdit: state
 using REPL: Options, REPLBackendRef
+using REPL: raw!
 
 import REPL: outstream, specialdisplay, terminal, answer_color, input_color,
     reset, prepare_next, setup_interface, run_frontend
@@ -55,6 +56,8 @@ HeaderREPL(main_repl::LineEditREPL, header::H) where H =
         true,
     )
 
+const msgs = []  # debugging
+
 ## Interface that must be provided by concrete types:
 """
     prompt, modesym = setup_prompt(repl::HeaderREPL{H}, hascolor::Bool)
@@ -79,14 +82,14 @@ Some typically useful keymaps (in conventional order of priority):
 append_keymaps!(keymaps, repl::HeaderREPL) = error("Unimplemented")
 
 """
-    print_header(terminal, header::AbstractHeader)
+    print_header(io::IO, header::CustomHeader)
 
-Print `header` to `terminal`.
+Print `header` to `io`.
 
 While you have to define `print_header`, generally you should not call it directly.
 If you need to display the header, call `refresh_header`.
 """
-print_header(terminal, header::AbstractHeader) = error("Unimplemented")
+print_header(io::IO, header::AbstractHeader) = error("Unimplemented")
 print_header(repl::HeaderREPL) = print_header(terminal(repl), repl.header)
 
 # A header can provide either `nlines` or directly implement `clear_header_area`
@@ -176,7 +179,7 @@ function mode_termination_keymap(repl::HeaderREPL, default_prompt::Prompt; copyb
         if isempty(s) || position(LineEdit.buffer(s)) == 0
             copybuffer || LineEdit.edit_clear(s)
             buf = copy(LineEdit.buffer(s))
-            clear_io(repl, s)
+            clear_io(s, repl)
             transition(s, default_prompt) do
                 LineEdit.state(s, default_prompt).input_buffer = buf
             end
@@ -192,6 +195,27 @@ function mode_termination_keymap(repl::HeaderREPL, default_prompt::Prompt; copyb
         transition(s, :reset)
         LineEdit.refresh_line(s)
     end)
+end
+
+## History-based mode switching
+
+# The biggest problem is that `transition` isn't amenable to the kind of specialization
+# that we need here. By specializing this on Prompt we get a chance to fix this.
+# This is admittedly type-piracy, hopefully without major consequence.
+function REPL.LineEdit.activate(p::Prompt, s::ModeState, termbuf, term::TextTerminal)
+    REPL.LineEdit.activate(p.repl, s, termbuf, term)
+end
+function REPL.LineEdit.activate(repl::HeaderREPL, s::ModeState, termbuf, term::TextTerminal)
+    push!(msgs, ("got activated",))
+    s.ias = REPL.LineEdit.InputAreaState(0, 0)
+    REPL.LineEdit.refresh_line(s, termbuf)
+    refresh_header(repl, s, termbuf, term)
+    nothing
+end
+function REPL.LineEdit.activate(::AbstractREPL, s::ModeState, termbuf, term::TextTerminal)
+    s.ias = REPL.LineEdit.InputAreaState(0, 0)
+    REPL.LineEdit.refresh_line(s, termbuf)
+    nothing
 end
 
 ## Generic implementations
@@ -210,18 +234,29 @@ end
 
 prepare_next(repl::HeaderREPL) = println(terminal(repl))
 
-function clear_io(repl::HeaderREPL, s)
+function clear_io(s, repl::HeaderREPL)
     if !repl.cleared
         LineEdit.clear_input_area(s)
-        clear_header_area(terminal(repl), repl.header)
+        clear_header_area(terminal(s), repl.header)
         repl.cleared = true
     end
 end
-clear_io(repl::HeaderREPL, s::MIState) = clear_io(repl, state(s))
+# clear_io(s::MIState, repl::HeaderREPL) = clear_io(terminal(s), repl)
 
-function refresh_header(repl::HeaderREPL, s)
-    clear_io(repl, s)
-    print_header(terminal(repl), repl.header)
+function refresh_header(repl::HeaderREPL, s::MIState, termbuf, terminal::UnixTerminal)
+    clear_io(s, repl)
+    print_header(terminal, repl.header)
+    LineEdit.refresh_multi_line(s)
+    repl.cleared = false
+end
+function refresh_header(repl::HeaderREPL, state, termbuf, terminal::UnixTerminal)
+    print_header(terminal, repl.header)
+    LineEdit.refresh_multi_line(state)
+    repl.cleared = false
+end
+function refresh_header(s, repl::HeaderREPL)
+    clear_io(s, repl)
+    print_header(terminal(s), repl.header)
     LineEdit.refresh_multi_line(s)
     repl.cleared = false
 end
