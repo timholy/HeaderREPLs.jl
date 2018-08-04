@@ -9,6 +9,8 @@ end
 
 function HeaderREPLs.print_header(terminal, header::CountingHeader)
     if header.n > 0
+        HeaderREPLs.cmove_col(terminal, 1)
+        HeaderREPLs.clear_line(terminal)
         printstyled(terminal, "Header:\n"; color=:light_magenta)
         for i = 1:header.n
             printstyled(terminal, "  ", i, '\n'; color=:light_blue)
@@ -67,35 +69,8 @@ REPL.setup_interface(repl; extra_repl_keymap=special_keys)
 function enter_count(s)
     prompt = find_prompt(s, "count")
     transition(s, prompt) do
-        print_header(prompt.repl)
+        refresh_header(prompt.repl, s)
     end
 end
 julia_prompt = find_prompt(main_repl.interface, "julia")
 julia_prompt.keymap_dict[')'] = (s, o...) -> enter_count(s)
-
-
-
-# function fake_repl(@nospecialize(f); options::REPL.Options=REPL.Options(confirm_exit=false))
-#     input = Pipe()
-#     output = Pipe()
-#     err = Pipe()
-#     Base.link_pipe!(input, reader_supports_async=true, writer_supports_async=true)
-#     Base.link_pipe!(output, reader_supports_async=true, writer_supports_async=true)
-#     Base.link_pipe!(err, reader_supports_async=true, writer_supports_async=true)
-
-#     lerepl = REPL.LineEditREPL(FakeTerminal(input.out, output.in, err.in), true)
-#     repl = HeaderREPL()
-#     repl.options = options
-
-#     f(input.in, output.out, repl)
-#     t = @async begin
-#         close(input.in)
-#         close(output.in)
-#         close(err.in)
-#     end
-#     @test read(err.out, String) == ""
-#     display(read(output.out, String))
-#     Base._wait(t)
-#     nothing
-# end
-

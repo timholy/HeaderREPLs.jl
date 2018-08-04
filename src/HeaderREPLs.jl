@@ -3,7 +3,7 @@ module HeaderREPLs
 using REPL
 using REPL.LineEdit, REPL.Terminals
 using REPL.Terminals: TextTerminal
-using REPL.Terminals: cmove_up, clear_line
+using REPL.Terminals: cmove_up, cmove_col, clear_line
 using REPL.LineEdit: TextInterface, MIState
 using REPL.LineEdit: state
 using REPL: Options, REPLBackendRef
@@ -82,16 +82,12 @@ append_keymaps!(keymaps, repl::HeaderREPL) = error("Unimplemented")
     print_header(terminal, header::AbstractHeader)
 
 Print `header` to `terminal`.
+
+While you have to define `print_header`, generally you should not call it directly.
+If you need to display the header, call `refresh_header`.
 """
 print_header(terminal, header::AbstractHeader) = error("Unimplemented")
 print_header(repl::HeaderREPL) = print_header(terminal(repl), repl.header)
-
-function refresh_header(repl::HeaderREPL, s)
-    clear_io(repl, s)
-    print_header(terminal(repl), repl.header)
-    LineEdit.refresh_multi_line(s)
-    repl.cleared = false
-end
 
 # A header can provide either `nlines` or directly implement `clear_header_area`
 """
@@ -111,6 +107,8 @@ as you go.
 In most cases you can probably just implement [`nlines`](@ref) instead.
 """
 function clear_header_area(terminal, header::AbstractHeader)
+    cmove_col(terminal, 1)
+    clear_line(terminal)
     for i = 1:nlines(terminal, header)
         cmove_up(terminal)
         clear_line(terminal)
@@ -118,15 +116,6 @@ function clear_header_area(terminal, header::AbstractHeader)
     nothing
 end
 clear_header_area(repl::HeaderREPL) = clear_header_area(terminal(repl), repl.header)
-
-function clear_io(repl::HeaderREPL, s)
-    if !repl.cleared
-        LineEdit.clear_input_area(s)
-        clear_header_area(terminal(repl), repl.header)
-        repl.cleared = true
-    end
-end
-clear_io(repl::HeaderREPL, s::MIState) = clear_io(repl, state(s))
 
 ## Utilities
 
@@ -181,11 +170,13 @@ trigger_prefix_keymap(repl::HeaderREPL) = trigger_prefix_keymap(find_prompt(repl
 
 Default back to `default_prompt` for "^C" and hitting backspace as the first character of the line.
 """
-function mode_termination_keymap(repl::HeaderREPL, default_prompt::Prompt)
+function mode_termination_keymap(repl::HeaderREPL, default_prompt::Prompt; copybuffer::Bool=true)
     Dict{Any,Any}(
     '\b' => function (s,o...)
         if isempty(s) || position(LineEdit.buffer(s)) == 0
+            copybuffer || LineEdit.edit_clear(s)
             buf = copy(LineEdit.buffer(s))
+            clear_io(repl, s)
             transition(s, default_prompt) do
                 LineEdit.state(s, default_prompt).input_buffer = buf
             end
@@ -218,6 +209,22 @@ function reset(repl::HeaderREPL)
 end
 
 prepare_next(repl::HeaderREPL) = println(terminal(repl))
+
+function clear_io(repl::HeaderREPL, s)
+    if !repl.cleared
+        LineEdit.clear_input_area(s)
+        clear_header_area(terminal(repl), repl.header)
+        repl.cleared = true
+    end
+end
+clear_io(repl::HeaderREPL, s::MIState) = clear_io(repl, state(s))
+
+function refresh_header(repl::HeaderREPL, s)
+    clear_io(repl, s)
+    print_header(terminal(repl), repl.header)
+    LineEdit.refresh_multi_line(s)
+    repl.cleared = false
+end
 
 init_state(header::AbstractHeader, terminal, prompt) = init_state(terminal, prompt)
 
