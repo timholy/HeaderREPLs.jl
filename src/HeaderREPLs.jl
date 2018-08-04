@@ -243,7 +243,10 @@ function reset(repl::HeaderREPL)
     print(repl.t, Base.text_colors[:normal])
 end
 
-prepare_next(repl::HeaderREPL) = println(terminal(repl))
+function prepare_next(repl::HeaderREPL)
+    repl.cleared = true
+    println(terminal(repl))
+end
 
 function clear_io(s, repl::HeaderREPL)
     if !repl.cleared
