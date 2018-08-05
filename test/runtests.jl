@@ -30,11 +30,10 @@ function HeaderREPLs.setup_prompt(repl::HeaderREPL{CountingHeader}, hascolor::Bo
         complete = julia_prompt.complete,
         on_enter = REPL.return_callback)
 
-    prompt.on_done = REPL.respond(repl, julia_prompt) do str
+    prompt.on_done = HeaderREPLs.respond(repl, julia_prompt) do str
         Base.parse_input_line(str; filename="COUNT")
     end
     # hist will be handled automatically if repl.history_file is true
-    # repl is obviously handled
     # keymap_dict is separate
     return prompt, :count
 end
@@ -55,7 +54,7 @@ end
 function modify(s, repl, diff)
     clear_io(state(s), repl)
     repl.header.n = max(0, repl.header.n + diff)
-    refresh_header(s, repl)
+    refresh_header(s, repl; clearheader=false)
 end
 
 @noinline increment(s, repl) = modify(s, repl, +1)

@@ -2,19 +2,30 @@ module HeaderREPLs
 
 using REPL
 using REPL.LineEdit, REPL.Terminals
+
 using REPL.Terminals: TextTerminal
 using REPL.Terminals: cmove_up, cmove_col, clear_line
-using REPL.LineEdit: TextInterface, MIState, ModeState
-using REPL.LineEdit: state
+
+using REPL.LineEdit: TextInterface, ModalInterface, Prompt, HistoryPrompt, PrefixHistoryPrompt  # modes
+using REPL.LineEdit: ModeState,     MIState,     PromptState, SearchState, PrefixSearchState    # states
+using REPL.LineEdit: InputAreaState
+using REPL.LineEdit: state, mode
+
 using REPL: Options, REPLBackendRef
 using REPL: raw!
 
+# Internal customizations
 import REPL: outstream, specialdisplay, terminal, answer_color, input_color,
     reset, prepare_next, setup_interface, run_frontend
 import REPL.LineEdit: init_state
 
+# Required user customization API
 export AbstractHeader, HeaderREPL
-export print_header, clear_io, refresh_header, find_prompt, trigger_search_keymap, mode_termination_keymap, trigger_prefix_keymap
+export print_header, nlines, append_keymaps!
+# alternatively `clear_header_area`, but this doesn't seem to need to be exported
+# Convenience utilities
+export trigger_search_keymap, mode_termination_keymap, trigger_prefix_keymap
+export find_prompt, clear_io, refresh_header
 
 abstract type AbstractHeader end
 
@@ -33,7 +44,7 @@ mutable struct HeaderREPL{H<:AbstractHeader} <: AbstractREPL
     mistate::Union{MIState,Nothing}
     interface::ModalInterface
     backendref::REPLBackendRef
-    cleared::Bool
+    clearheader::Bool  # next time we transition should we erase the space for the header?
 end
 
 ## HeaderREPL is meant to integrate with LineEditREPL
@@ -53,18 +64,30 @@ HeaderREPL(main_repl::LineEditREPL, header::H) where H =
         main_repl.mistate,
         main_repl.interface,
         main_repl.backendref,
-        true,
+        true
     )
 
 const msgs = []  # debugging
 
-## Interface that must be provided by concrete types:
+### Interface that must be provided in terms of application-dependent concrete types ###
+
 """
     prompt, modesym = setup_prompt(repl::HeaderREPL{H}, hascolor::Bool)
 
 Return `prompt::LineEdit.Prompt` and a mode symbol `modesym::Symbol` that will appear in the julia history file.
 """
 setup_prompt(repl::HeaderREPL, hascolor::Bool) = error("Unimplemented")
+
+"""
+    print_header(io::IO, header::CustomHeader)
+
+Print `header` to `io`.
+
+While you have to define `print_header`, generally you should not call it directly.
+If you need to display the header, call `refresh_header`.
+"""
+print_header(io::IO, header::AbstractHeader) = error("Unimplemented")
+print_header(repl::HeaderREPL) = print_header(terminal(repl), repl.header)
 
 """
     append_keymaps!(keymaps, repl::HeaderREPL{H})
@@ -80,17 +103,6 @@ Some typically useful keymaps (in conventional order of priority):
 - `REPL.LineEdit.escape_defaults`
 """
 append_keymaps!(keymaps, repl::HeaderREPL) = error("Unimplemented")
-
-"""
-    print_header(io::IO, header::CustomHeader)
-
-Print `header` to `io`.
-
-While you have to define `print_header`, generally you should not call it directly.
-If you need to display the header, call `refresh_header`.
-"""
-print_header(io::IO, header::AbstractHeader) = error("Unimplemented")
-print_header(repl::HeaderREPL) = print_header(terminal(repl), repl.header)
 
 # A header can provide either `nlines` or directly implement `clear_header_area`
 """
@@ -120,8 +132,16 @@ function clear_header_area(terminal, header::AbstractHeader)
 end
 clear_header_area(repl::HeaderREPL) = clear_header_area(terminal(repl), repl.header)
 
-## Utilities
 
+### Utilities ###
+
+"""
+    find_prompt(mi, "julia")
+    find_prompt(mi, PrefixHistoryPrompt)
+
+Return the selected prompt from `mi`, searching either for the prompt-string
+of a `Prompt` or, for other `TextInterface`s, searching by type.
+"""
 function find_prompt(interface::ModalInterface, promptstr::AbstractString)
     for p in interface.modes
         if isa(p, Prompt) && isa(p.prompt, AbstractString)
@@ -146,11 +166,11 @@ find_prompt(s, p) = find_prompt(s.interface, p)
 
 Sets up "^R" and "^S" to trigger reverse and forward search, respectively.
 """
-trigger_search_keymap(p::LineEdit.HistoryPrompt) = Dict{Any,Any}(
-    "^R"    => (s,o...)->(enter_search(s, p, true)),
-    "^S"    => (s,o...)->(enter_search(s, p, false)),
+trigger_search_keymap(p::HistoryPrompt) = Dict{Any,Any}(
+    "^R"    => (s,o...)->(LineEdit.enter_search(s, p, true)),
+    "^S"    => (s,o...)->(LineEdit.enter_search(s, p, false)),
 )
-trigger_search_keymap(repl::HeaderREPL) = trigger_search_keymap(find_prompt(repl.interface, LineEdit.HistoryPrompt))
+trigger_search_keymap(repl::HeaderREPL) = trigger_search_keymap(find_prompt(repl.interface, HistoryPrompt))
 
 """
     keymap_dict = trigger_prefix_keymap(p::PrefixHistoryPrompt)
@@ -158,15 +178,15 @@ trigger_search_keymap(repl::HeaderREPL) = trigger_search_keymap(find_prompt(repl
 
 Sets up the arrow keys and "^P" and "^N" to trigger reverse and forward prefix-search, respectively.
 """
-trigger_prefix_keymap(p::LineEdit.PrefixHistoryPrompt) = Dict{Any,Any}(
-    "^P" => (s,o...)->(edit_move_up(s) || enter_prefix_search(s, p, true)),
-    "^N" => (s,o...)->(edit_move_down(s) || enter_prefix_search(s, p, false)),
+trigger_prefix_keymap(p::PrefixHistoryPrompt) = Dict{Any,Any}(
+    "^P" => (s,o...)->(LineEdit.edit_move_up(s) || LineEdit.enter_prefix_search(s, p, true)),
+    "^N" => (s,o...)->(LineEdit.edit_move_down(s) || LineEdit.enter_prefix_search(s, p, false)),
     # Up Arrow
-    "\e[A" => (s,o...)->(edit_move_up(s) || enter_prefix_search(s, p, true)),
+    "\e[A" => (s,o...)->(LineEdit.edit_move_up(s) || LineEdit.enter_prefix_search(s, p, true)),
     # Down Arrow
-    "\e[B" => (s,o...)->(edit_move_down(s) || enter_prefix_search(s, p, false)),
+    "\e[B" => (s,o...)->(LineEdit.edit_move_down(s) || LineEdit.enter_prefix_search(s, p, false)),
     )
-trigger_prefix_keymap(repl::HeaderREPL) = trigger_prefix_keymap(find_prompt(repl.interface, LineEdit.PrefixHistoryPrompt))
+trigger_prefix_keymap(repl::HeaderREPL) = trigger_prefix_keymap(find_prompt(repl.interface, PrefixHistoryPrompt))
 
 """
     keymap_dict = mode_termination_keymap(repl::HeaderREPL, default_prompt::Prompt)
@@ -179,7 +199,6 @@ function mode_termination_keymap(repl::HeaderREPL, default_prompt::Prompt; copyb
         if isempty(s) || position(LineEdit.buffer(s)) == 0
             copybuffer || LineEdit.edit_clear(s)
             buf = copy(LineEdit.buffer(s))
-            clear_io(s, repl)
             transition(s, default_prompt) do
                 LineEdit.state(s, default_prompt).input_buffer = buf
             end
@@ -189,45 +208,156 @@ function mode_termination_keymap(repl::HeaderREPL, default_prompt::Prompt; copyb
     end,
     "^C" => function (s,o...)
         LineEdit.move_input_end(s)
-        repl.cleared = true
         print(terminal(s), "^C\n\n")
+        repl.clearheader = false
         transition(s, default_prompt)
+        repl.clearheader = true
         transition(s, :reset)
         LineEdit.refresh_line(s)
     end)
 end
 
+"""
+    clear_io(s, repl)
+
+Erases both the input line and the header.
+"""
+function clear_io(s, repl::HeaderREPL)
+    LineEdit.clear_input_area(s)
+    clear_header_area(terminal(s), repl.header)
+end
+clear_io(s::MIState, repl::HeaderREPL) = clear_io(state(s), repl)
+
+"""
+    refresh_header(s, repl; clearheader=true)
+    refresh_header(repl, s, termbuf, terminal; clearheader=true)
+
+Clear (if `clearheader` is true) and redraw the header and input line.
+"""
+function refresh_header(repl::HeaderREPL, s::MIState, termbuf, terminal::UnixTerminal; clearheader=true)
+    clearheader && repl.clearheader && clear_io(s, repl)
+    print_header(terminal, repl.header)
+    repl.clearheader = true
+    LineEdit.refresh_multi_line(s)
+end
+function refresh_header(repl::HeaderREPL, state, termbuf, terminal::UnixTerminal)
+    error("why am I here and why don't I clear_io?")
+    print_header(terminal, repl.header)
+    repl.clearheader = true
+    LineEdit.refresh_multi_line(state)
+end
+function refresh_header(s, repl::HeaderREPL; clearheader=true)
+    clearheader && repl.clearheader && clear_io(s, repl)
+    print_header(terminal(s), repl.header)
+    repl.clearheader = true
+    LineEdit.refresh_multi_line(s)
+end
+
+### Internals ###
+
 ## History-based mode switching
 
-# The biggest problem is that `transition` isn't amenable to the kind of specialization
-# that we need here. By specializing this on Prompt we get a chance to fix this.
-# This is admittedly type-piracy, hopefully without major consequence.
-function REPL.LineEdit.activate(p::Prompt, s::ModeState, termbuf, term::TextTerminal)
-    REPL.LineEdit.activate(p.repl, s, termbuf, term)
-end
-function REPL.LineEdit.activate(repl::HeaderREPL, s::ModeState, termbuf, term::TextTerminal)
-    repl.cleared = true
-    print_header(term, repl.header)
-    s.ias = REPL.LineEdit.InputAreaState(0, 0)
-    LineEdit.refresh_line(s, termbuf)
-    repl.cleared = false
-    nothing
-end
-function REPL.LineEdit.activate(::AbstractREPL, s::ModeState, termbuf, term::TextTerminal)
-    s.ias = REPL.LineEdit.InputAreaState(0, 0)
-    REPL.LineEdit.refresh_line(s, termbuf)
+# I tried but failed to extend it via the `activate` and `deactive` calls, but it proved
+# challenging due to the fact that `activate` and `deactivate` only get information about
+# one of the two states, and this seems to need to know both the "source" and "destination"
+# modes. The most problematic case was history-search, which switches transiently into a
+# "real" prompt and then back into a ("parented") search mode which, unlike "real" modes,
+# should not (yet) clear the header.
+
+# So this takes the drastic strategy of overwriting several REPL methods.
+# This triggers warnings when you load the package.
+# TODO?: get some kind of cleaned-up implementation into REPL itself.
+
+moderepl(p::Prompt)              = p.repl
+moderepl(p::HistoryPrompt)       = nothing
+moderepl(p::PrefixHistoryPrompt) = moderepl(p.parent_prompt)
+moderepl(s::MIState)             = moderepl(mode(s))
+moderepl(s::PromptState)         = moderepl(s.p)
+moderepl(s::SearchState)         = moderepl(s.parent)   # should this return nothing? here `mode` is @assert false
+moderepl(s::PrefixSearchState)   = moderepl(s.parent)
+
+function LineEdit.transition(f::Function, s::PrefixSearchState, mode)
+    if isdefined(s, :mi)
+        _transition((args...)->nothing, s.mi, mode; aflag=true, dflag=isa(moderepl(s), HeaderREPL))
+    end
+    s.parent = mode
+    s.histprompt.parent_prompt = mode
+    if isdefined(s, :mi)
+        _transition(f, s.mi, s.histprompt; aflag=false, dflag=false)
+    else
+        f()
+    end
     nothing
 end
 
-function REPL.LineEdit.deactivate(p::Prompt, s::ModeState, termbuf, term::TextTerminal)
-    REPL.LineEdit.deactivate(p.repl, s, termbuf, term)
+function _transition(f::Function, s::MIState, newmode; aflag::Bool=true, dflag::Bool=true)
+    LineEdit.cancel_beep(s)
+    if newmode === :abort
+        s.aborted = true
+        return
+    end
+    if newmode === :reset
+        LineEdit.reset_state(s)
+        return
+    end
+    if !haskey(s.mode_state, newmode)
+        s.mode_state[newmode] = init_state(terminal(s), newmode)
+    end
+    termbuf = TerminalBuffer(IOBuffer())
+    t = terminal(s)
+    # @show aflag dflag
+    # prettyprint(mode(s))
+    # print(" => ")
+    # prettyprint(newmode)
+    # println()
+    # sleep(2.0)
+    s.mode_state[mode(s)] = if dflag
+        LineEdit.deactivate(mode(s), state(s), termbuf, t)
+    else
+        _deactivate(mode(s), state(s), termbuf, t)
+    end
+    s.current_mode = newmode
+    f()
+    if aflag
+        LineEdit.activate(newmode, state(s, newmode), termbuf, t)
+    else
+        _activate(newmode, state(s, newmode), termbuf, t)
+    end
+    LineEdit.commit_changes(t, termbuf)
+    nothing
 end
-function REPL.LineEdit.deactivate(repl::HeaderREPL, s::ModeState, termbuf, term::TextTerminal)
-    clear_io(s, repl)
-    return s
+
+prettyprint(p::Prompt) = print(p)
+prettyprint(::T) where T = print(T)
+
+function REPL.LineEdit.activate(p::TextInterface, s::ModeState, termbuf, term::TextTerminal)
+    repl = moderepl(p)
+    if repl isa HeaderREPL
+        # println("activate"); sleep(0.5)
+        print_header(term, repl.header)
+    end
+    _activate(p, s, termbuf, term)
 end
-function REPL.LineEdit.deactivate(::AbstractREPL, s::ModeState, termbuf, term::TextTerminal)
-    REPL.LineEdit.clear_input_area(termbuf, s)
+function _activate(p, s, termbuf, term)
+    s.ias = InputAreaState(0, 0)
+    LineEdit.refresh_line(s, termbuf)
+    nothing
+end
+
+function REPL.LineEdit.deactivate(p::TextInterface, s::ModeState, termbuf, term::TextTerminal)
+    repl = moderepl(p)
+    # @show typeof(repl)
+    # repl isa HeaderREPL && @show repl.clearheader
+    # sleep(0.5)
+    if repl isa HeaderREPL && repl.clearheader
+        # println("deactivate"); sleep(0.5)
+        clear_io(s, repl)
+        return s
+    end
+    _deactivate(p, s, termbuf, term)
+end
+function _deactivate(p, s, termbuf, term)
+    LineEdit.clear_input_area(termbuf, s)
     return s
 end
 
@@ -246,40 +376,18 @@ function reset(repl::HeaderREPL)
 end
 
 function prepare_next(repl::HeaderREPL)
-    repl.cleared = true
     println(terminal(repl))
 end
 
-function clear_io(s, repl::HeaderREPL)
-    if !repl.cleared
-        LineEdit.clear_input_area(s)
-        clear_header_area(terminal(s), repl.header)
-        repl.cleared = true
-    end
-end
-clear_io(s::MIState, repl::HeaderREPL) = clear_io(state(s), repl)
-
-function refresh_header(repl::HeaderREPL, s::MIState, termbuf, terminal::UnixTerminal)
-    clear_io(s, repl)
-    print_header(terminal, repl.header)
-    LineEdit.refresh_multi_line(s)
-    repl.cleared = false
-end
-function refresh_header(repl::HeaderREPL, state, termbuf, terminal::UnixTerminal)
-    print_header(terminal, repl.header)
-    LineEdit.refresh_multi_line(state)
-    repl.cleared = false
-end
-function refresh_header(s, repl::HeaderREPL)
-    clear_io(s, repl)
-    print_header(terminal(s), repl.header)
-    LineEdit.refresh_multi_line(s)
-    repl.cleared = false
-end
-
 function respond(f, repl::HeaderREPL, main; pass_empty = false)  # this does *not* extend REPL.respond
-    repl.cleared = true
-    REPL.respond(f, repl, main; pass_empty=pass_empty)
+    dorespond = REPL.respond(f, repl, main; pass_empty=pass_empty)
+    return function _dorespond(s, buf, ok)
+        # println("clearheader = false"); sleep(0.5)
+        repl.clearheader = false
+        ret = dorespond(s, buf, ok)
+        repl.clearheader = true
+        return ret
+    end
 end
 
 init_state(header::AbstractHeader, terminal, prompt) = init_state(terminal, prompt)
