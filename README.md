@@ -34,7 +34,7 @@ mode and specify the user interaction: briefly, a pipe character ('|') switches 
 
 Here, let's check out the outcome with a series of images.
 
-![entry into count](images/screenshot1.png)
+![entry](images/screenshot1.png)
 
 This is what you see when you first press '|'.
 `n` starts at 0, and our `print_header` method above displays nothing in that case.
@@ -47,10 +47,10 @@ This is what you get after pressing '+' three times.
 
 Now after pressing '-'. Note the line moved up to stay aligned.
 
-![enter](images/screenshot3.png)
+![enter](images/screenshot4.png)
 
-And finally, after hitting <Enter>. In this demo, "count" mode is non-sticky, so it reverts
-back to the `julia>` prompt.
+Note we can enter Julia commands as usual.
+In this demo, "count" mode is non-sticky, so it reverts back to the `julia>` prompt.
 
 In theory at least, "count" mode works as you'd expect when you traverse the
 history: when you get to a "count" line it shows the (current) header.
