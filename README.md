@@ -18,8 +18,6 @@ end
 
 function HeaderREPLs.print_header(io::IO, header::CountingHeader)
     if header.n > 0
-        HeaderREPLs.cmove_col(io, 1)
-        HeaderREPLs.clear_line(io)
         printstyled(io, "Header:\n"; color=:light_magenta)
         for i = 1:header.n
             printstyled(io, "  ", i, '\n'; color=:light_blue)

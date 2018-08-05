@@ -236,21 +236,23 @@ Clear (if `clearheader` is true) and redraw the header and input line.
 """
 function refresh_header(repl::HeaderREPL, s::MIState, termbuf, terminal::UnixTerminal; clearheader=true)
     clearheader && repl.clearheader && clear_io(s, repl)
-    print_header(terminal, repl.header)
-    repl.clearheader = true
-    LineEdit.refresh_multi_line(s)
-end
-function refresh_header(repl::HeaderREPL, state, termbuf, terminal::UnixTerminal)
-    error("why am I here and why don't I clear_io?")
-    print_header(terminal, repl.header)
-    repl.clearheader = true
-    LineEdit.refresh_multi_line(state)
+    _refresh_header(terminal, repl, s)
 end
 function refresh_header(s, repl::HeaderREPL; clearheader=true)
     clearheader && repl.clearheader && clear_io(s, repl)
-    print_header(terminal(s), repl.header)
+    _refresh_header(terminal(s), repl, s)
+end
+
+function _refresh_header(terminal, repl, s)
+    _print_header(terminal, repl.header)
     repl.clearheader = true
     LineEdit.refresh_multi_line(s)
+end
+
+function _print_header(io, header)
+    cmove_col(io, 1)
+    clear_line(io)
+    print_header(io, header)
 end
 
 ### Internals ###
@@ -334,7 +336,7 @@ function REPL.LineEdit.activate(p::TextInterface, s::ModeState, termbuf, term::T
     repl = moderepl(p)
     if repl isa HeaderREPL
         # println("activate"); sleep(0.5)
-        print_header(term, repl.header)
+        _print_header(term, repl.header)
     end
     _activate(p, s, termbuf, term)
 end
