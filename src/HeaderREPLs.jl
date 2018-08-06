@@ -285,7 +285,7 @@ function LineEdit.transition(f::Function, s::PrefixSearchState, mode)
     s.parent = mode
     s.histprompt.parent_prompt = mode
     if isdefined(s, :mi)
-        _transition(f, s.mi, s.histprompt; aflag=false, dflag=false)
+        _transition(f, s.mi, s.histprompt; aflag=true, dflag=false)
     else
         f()
     end
@@ -335,7 +335,7 @@ prettyprint(::T) where T = print(T)
 function REPL.LineEdit.activate(p::TextInterface, s::ModeState, termbuf, term::TextTerminal)
     repl = moderepl(p)
     if repl isa HeaderREPL
-        # println("activate"); sleep(0.5)
+        activate_header(repl.header, p, s, termbuf, term)
         _print_header(term, repl.header)
     end
     _activate(p, s, termbuf, term)
@@ -345,14 +345,12 @@ function _activate(p, s, termbuf, term)
     LineEdit.refresh_line(s, termbuf)
     nothing
 end
+activate_header(header, p, s, termbuf, term) = nothing
 
 function REPL.LineEdit.deactivate(p::TextInterface, s::ModeState, termbuf, term::TextTerminal)
     repl = moderepl(p)
-    # @show typeof(repl)
-    # repl isa HeaderREPL && @show repl.clearheader
-    # sleep(0.5)
     if repl isa HeaderREPL && repl.clearheader
-        # println("deactivate"); sleep(0.5)
+        deactivate_header(repl.header, p, s, termbuf, term)
         clear_io(s, repl)
         return s
     end
@@ -362,6 +360,7 @@ function _deactivate(p, s, termbuf, term)
     LineEdit.clear_input_area(termbuf, s)
     return s
 end
+deactivate_header(header, p, s, termbuf, term) = nothing
 
 ## Generic implementations
 
