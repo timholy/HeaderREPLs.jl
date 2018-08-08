@@ -302,6 +302,7 @@ function _transition(f::Function, s::MIState, newmode; aflag::Bool=true, dflag::
         LineEdit.reset_state(s)
         return
     end
+    newmode === nothing && return
     if !haskey(s.mode_state, newmode)
         s.mode_state[newmode] = init_state(terminal(s), newmode)
     end
