@@ -12,17 +12,22 @@ information above the prompt.
 To demonstrate, here we build a `CountingHeader` type and show how the header is printed:
 
 ```julia
-mutable struct CountingHeader <: AbstractHeader
-    n::Int
+mutable struct CountingHeader <: AbstractHeader    # note must be mutable and contain nlines field
+    n::Int            # internal data needed by the header
+    nlines::Int       # the number of lines needed for display---update this in print_header
 end
 
 function HeaderREPLs.print_header(io::IO, header::CountingHeader)
-    if header.n > 0
-        printstyled(io, "Header:\n"; color=:light_magenta)
-        for i = 1:header.n
-            printstyled(io, "  ", i, '\n'; color=:light_blue)
+    if header.nlines == 0
+        if header.n > 0
+            printstyled(io, "Header:\n"; color=:light_magenta)
+            for i = 1:header.n
+                printstyled(io, "  ", i, '\n'; color=:light_blue)
+            end
         end
+        header.nlines = nlines(header.n)
     end
+    return nothing
 end
 ```
 
@@ -53,6 +58,12 @@ In this demo, "count" mode is non-sticky, so it reverts back to the `julia>` pro
 In theory at least, "count" mode works as you'd expect when you traverse the
 history: when you get to a "count" line it shows the (current) header.
 
+## Utilities
+
+The package exports a few utilities that may make it easier to define custom REPL modes.
+Aside from key-binding initialization utilities (see the source for details),
+perhaps the two most useful are `find_prompt` and `count_display_lines`.
+Use `?` for more information.
 
 ## Notes
 

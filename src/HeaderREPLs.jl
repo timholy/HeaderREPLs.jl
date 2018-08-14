@@ -3,7 +3,7 @@ module HeaderREPLs
 using REPL
 using REPL.LineEdit, REPL.Terminals
 
-using REPL.Terminals: TextTerminal
+using REPL.Terminals: TextTerminal, TTYTerminal
 using REPL.Terminals: cmove_up, cmove_col, clear_line
 
 using REPL.LineEdit: TextInterface, ModalInterface, Prompt, HistoryPrompt, PrefixHistoryPrompt  # modes
@@ -21,11 +21,11 @@ import REPL.LineEdit: init_state
 
 # Required user customization API
 export AbstractHeader, HeaderREPL
-export print_header, nlines, append_keymaps!
+export print_header, append_keymaps!
 # alternatively `clear_header_area`, but this doesn't seem to need to be exported
 # Convenience utilities
 export trigger_search_keymap, mode_termination_keymap, trigger_prefix_keymap
-export find_prompt, clear_io, refresh_header
+export find_prompt, clear_io, refresh_header, count_display_lines
 
 abstract type AbstractHeader end
 
@@ -44,7 +44,6 @@ mutable struct HeaderREPL{H<:AbstractHeader} <: AbstractREPL
     mistate::Union{MIState,Nothing}
     interface::ModalInterface
     backendref::REPLBackendRef
-    clearheader::Bool  # next time we transition should we erase the space for the header?
 end
 
 ## HeaderREPL is meant to integrate with LineEditREPL
@@ -64,7 +63,6 @@ HeaderREPL(main_repl::LineEditREPL, header::H) where H =
         main_repl.mistate,
         main_repl.interface,
         main_repl.backendref,
-        true
     )
 
 const msgs = []  # debugging
@@ -81,7 +79,9 @@ setup_prompt(repl::HeaderREPL, hascolor::Bool) = error("Unimplemented")
 """
     print_header(io::IO, header::CustomHeader)
 
-Print `header` to `io`.
+Print `header` to `io`. `header` must be a mutable struct containing a field `nlines`,
+and before exiting `print_header` should set this field to the number of
+lines occupied by the display of your header.
 
 While you have to define `print_header`, generally you should not call it directly.
 If you need to display the header, call `refresh_header`.
@@ -104,30 +104,46 @@ Some typically useful keymaps (in conventional order of priority):
 """
 append_keymaps!(keymaps, repl::HeaderREPL) = error("Unimplemented")
 
-# A header can provide either `nlines` or directly implement `clear_header_area`
 """
-    n = nlines(terminal, header::AbstractHeader)
+    activate_header(header, prompt, state, termbuf, term)
 
-Return the number of terminal lines required for display of `header` on `terminal`.
-    """
-nlines(terminal, header::AbstractHeader) = error("Unimplemented")
-nlines(repl::HeaderREPL) = nlines(terminal(repl), repl.header)
+Customize this if actions need to be taken to initialize your header
+when switching from other prompts to your custom prompt.
+The default is to do nothing.
 
+See also [`deactivate_header`](@ref).
+"""
+activate_header(header, prompt, state, termbuf, term) = nothing
+
+"""
+    deactivate_header(header, prompt, state, termbuf, term)
+
+Customize this if actions need to be taken to clean up your header
+when switching from your custom prompt to other prompts.
+The default is to do nothing.
+
+See also [`activate_header`](@ref).
+"""
+deactivate_header(header, prompt, state, termbuf, term) = nothing
+
+# A header can optionally implement `clear_header_area`
 """
     clear_header_area(terminal, header::AbstractHeader)
 
 Move to the top of the area used for display of `header`, clearing lines
 as you go.
 
-In most cases you can probably just implement [`nlines`](@ref) instead.
+In most cases you can probably rely on the fallback implementation, as long as
+you update `header.nlines` appropriately.
 """
 function clear_header_area(terminal, header::AbstractHeader)
     cmove_col(terminal, 1)
     clear_line(terminal)
-    for i = 1:nlines(terminal, header)
+    for i = 1:header.nlines
         cmove_up(terminal)
         clear_line(terminal)
     end
+    header.nlines = 0
     nothing
 end
 clear_header_area(repl::HeaderREPL) = clear_header_area(terminal(repl), repl.header)
@@ -209,9 +225,8 @@ function mode_termination_keymap(repl::HeaderREPL, default_prompt::Prompt; copyb
     "^C" => function (s,o...)
         LineEdit.move_input_end(s)
         print(terminal(s), "^C\n\n")
-        repl.clearheader = false
+        repl.header.nlines = 0  # don't erase what has been printed
         transition(s, default_prompt)
-        repl.clearheader = true
         transition(s, :reset)
         LineEdit.refresh_line(s)
     end)
@@ -235,21 +250,39 @@ clear_io(s::MIState, repl::HeaderREPL) = clear_io(state(s), repl)
 Clear (if `clearheader` is true) and redraw the header and input line.
 """
 function refresh_header(repl::HeaderREPL, s::MIState, termbuf, terminal::UnixTerminal; clearheader=true)
-    clearheader && repl.clearheader && clear_io(s, repl)
-    _refresh_header(terminal, repl, s)
+    clearheader && clear_io(s, repl)
+    clear_line_and_refresh(terminal, repl, s)
 end
 function refresh_header(s, repl::HeaderREPL; clearheader=true)
-    clearheader && repl.clearheader && clear_io(s, repl)
-    _refresh_header(terminal(s), repl, s)
+    clearheader && clear_io(s, repl)
+    clear_line_and_refresh(terminal(s), repl, s)
 end
 
-function _refresh_header(terminal, repl, s)
-    _print_header(terminal, repl.header)
-    repl.clearheader = true
+"""
+    nlines = count_display_lines(io, ds)
+
+Count the number of lines needed to display the contents of `io` in a terminal
+of [`displaysize`](@ref) `ds`. This handles "line wrap" as well as newlines.
+"""
+function count_display_lines(io::IO, ds)
+    pos = position(io)
+    seek(io, 0)
+    nlines = 0
+    while !eof(io)
+        line = readline(io, keep=true)
+        nlines += endswith(line, '\n')
+        nlines += textwidth(line) ÷ ds[2]
+    end
+    seek(io, pos)
+    return nlines
+end
+
+function clear_line_and_refresh(terminal, repl, s)
+    clear_line_and_print_header(terminal, repl.header)
     LineEdit.refresh_multi_line(s)
 end
 
-function _print_header(io, header)
+function clear_line_and_print_header(io, header)
     cmove_col(io, 1)
     clear_line(io)
     print_header(io, header)
@@ -337,7 +370,7 @@ function REPL.LineEdit.activate(p::TextInterface, s::ModeState, termbuf, term::T
     repl = moderepl(p)
     if repl isa HeaderREPL
         activate_header(repl.header, p, s, termbuf, term)
-        _print_header(term, repl.header)
+        clear_line_and_print_header(term, repl.header)
     end
     _activate(p, s, termbuf, term)
 end
@@ -346,11 +379,10 @@ function _activate(p, s, termbuf, term)
     LineEdit.refresh_line(s, termbuf)
     nothing
 end
-activate_header(header, p, s, termbuf, term) = nothing
 
 function REPL.LineEdit.deactivate(p::TextInterface, s::ModeState, termbuf, term::TextTerminal)
     repl = moderepl(p)
-    if repl isa HeaderREPL && repl.clearheader
+    if repl isa HeaderREPL
         deactivate_header(repl.header, p, s, termbuf, term)
         clear_io(s, repl)
         return s
@@ -361,7 +393,6 @@ function _deactivate(p, s, termbuf, term)
     LineEdit.clear_input_area(termbuf, s)
     return s
 end
-deactivate_header(header, p, s, termbuf, term) = nothing
 
 ## Generic implementations
 
@@ -384,11 +415,8 @@ end
 function respond(f, repl::HeaderREPL, main; pass_empty = false)  # this does *not* extend REPL.respond
     dorespond = REPL.respond(f, repl, main; pass_empty=pass_empty)
     return function _dorespond(s, buf, ok)
-        # println("clearheader = false"); sleep(0.5)
-        repl.clearheader = false
-        ret = dorespond(s, buf, ok)
-        repl.clearheader = true
-        return ret
+        repl.header.nlines = 0   # don't erase printed header when executing
+        dorespond(s, buf, ok)
     end
 end
 
