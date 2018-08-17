@@ -5,17 +5,23 @@ using REPL.LineEdit: transition, state
 
 mutable struct CountingHeader <: AbstractHeader
     n::Int
+    nlines::Int
 end
+nlines(n) = n == 0 ? 0 : n+1
+CountingHeader(n::Integer) = CountingHeader(n, nlines(n))
 
 function HeaderREPLs.print_header(io::IO, header::CountingHeader)
-    if header.n > 0
-        printstyled(io, "Header:\n"; color=:light_magenta)
-        for i = 1:header.n
-            printstyled(io, "  ", i, '\n'; color=:light_blue)
+    if header.nlines == 0
+        if header.n > 0
+            printstyled(io, "Header:\n"; color=:light_magenta)
+            for i = 1:header.n
+                printstyled(io, "  ", i, '\n'; color=:light_blue)
+            end
         end
+        header.nlines = nlines(header.n)
     end
+    return nothing
 end
-HeaderREPLs.nlines(terminal, header::CountingHeader) = header.n == 0 ? 0 : header.n+1
 
 function HeaderREPLs.setup_prompt(repl::HeaderREPL{CountingHeader}, hascolor::Bool)
     julia_prompt = find_prompt(repl.interface, "julia")
@@ -52,7 +58,7 @@ end
 function modify(s, repl, diff)
     clear_io(state(s), repl)
     repl.header.n = max(0, repl.header.n + diff)
-    refresh_header(s, repl; clearheader=false)
+    refresh_header(s, repl)
 end
 
 @noinline increment(s, repl) = modify(s, repl, +1)
