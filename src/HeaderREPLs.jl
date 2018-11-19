@@ -160,8 +160,9 @@ of a `Prompt` or, for other `TextInterface`s, searching by type.
 """
 function find_prompt(interface::ModalInterface, promptstr::AbstractString)
     for p in interface.modes
-        if isa(p, Prompt) && isa(p.prompt, AbstractString)
-            if startswith(p.prompt, promptstr)
+        if isa(p, Prompt) && (isa(p.prompt, AbstractString) || isa(p.prompt, Function))
+            pstrg = isa(p.prompt, Function) ? p.prompt() : p.prompt
+            if startswith(pstrg, promptstr)
                 return p
             end
         end
