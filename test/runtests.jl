@@ -4,15 +4,16 @@ using Test
 using REPL.LineEdit: transition, state
 using REPL.Terminals: TTYTerminal
 
+mutable struct CountingHeader <: AbstractHeader
+    n::Int
+    nlines::Int
+end
+CountingHeader(n::Integer) = CountingHeader(n, nlines(n))
+
 if isdefined(Base, :active_repl)
-    
-    mutable struct CountingHeader <: AbstractHeader
-        n::Int
-        nlines::Int
-    end
+
     nlines(n) = n == 0 ? 0 : n+1
-    CountingHeader(n::Integer) = CountingHeader(n, nlines(n))
-    
+
     function HeaderREPLs.print_header(io::IO, header::CountingHeader)
         if header.nlines == 0
             if header.n > 0
@@ -25,10 +26,10 @@ if isdefined(Base, :active_repl)
         end
         return nothing
     end
-    
+
     function HeaderREPLs.setup_prompt(repl::HeaderREPL{CountingHeader}, hascolor::Bool)
         julia_prompt = find_prompt(repl.interface, "julia")
-    
+
         prompt = REPL.LineEdit.Prompt(
             "count> ";
             prompt_prefix = hascolor ? repl.prompt_color : "",
@@ -36,7 +37,7 @@ if isdefined(Base, :active_repl)
                 (repl.envcolors ? Base.input_color : repl.input_color) : "",
             complete = julia_prompt.complete,
             on_enter = REPL.return_callback)
-    
+
         prompt.on_done = HeaderREPLs.respond(repl, julia_prompt) do str
             Base.parse_input_line(str; filename="COUNT")
         end
@@ -44,7 +45,7 @@ if isdefined(Base, :active_repl)
         # keymap_dict is separate
         return prompt, :count
     end
-    
+
     function HeaderREPLs.append_keymaps!(keymaps, repl::HeaderREPL{CountingHeader})
         julia_prompt = find_prompt(repl.interface, "julia")
         kms = [
@@ -57,25 +58,25 @@ if isdefined(Base, :active_repl)
         ]
         append!(keymaps, kms)
     end
-    
+
     function modify(s, repl, diff)
         clear_io(state(s), repl)
         repl.header.n = max(0, repl.header.n + diff)
         refresh_header(s, repl)
     end
-    
+
     @noinline increment(s, repl) = modify(s, repl, +1)
     @noinline decrement(s, repl) = modify(s, repl, -1)
-    
+
     special_keys = Dict{Any,Any}(
         '+' => (s, repl, str) -> increment(s, repl),
         '-' => (s, repl, str) -> decrement(s, repl),
     )
-    
+
     main_repl = Base.active_repl
     repl = HeaderREPL(main_repl, CountingHeader(0))
     REPL.setup_interface(repl; extra_repl_keymap=special_keys)
-    
+
     # Modify repl keymap so '|' enters the count> prompt
     # (Normally you'd use the atreplinit mechanism)
     function enter_count(s)
