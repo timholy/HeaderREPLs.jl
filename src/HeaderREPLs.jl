@@ -137,17 +137,11 @@ In most cases you can probably rely on the fallback implementation, as long as
 you update `header.nlines` appropriately.
 """
 function clear_header_area(terminal, header::AbstractHeader)
-    cmove_col(terminal, 1)
-    clear_line(terminal)
-    for i = 1:header.nlines
-        cmove_up(terminal)
-        clear_line(terminal)
-    end
+    clear_nlines(terminal, header.nlines)
     header.nlines = 0
     nothing
 end
 clear_header_area(repl::HeaderREPL) = clear_header_area(terminal(repl), repl.header)
-
 
 ### Utilities ###
 
@@ -288,6 +282,17 @@ function clear_line_and_print_header(io, header)
     clear_line(io)
     print_header(io, header)
 end
+
+function clear_nlines(terminal, n)
+    cmove_col(terminal, 1)
+    clear_line(terminal)
+    for i = 1:n
+        cmove_up(terminal)
+        clear_line(terminal)
+    end
+    return terminal
+end
+
 
 ### Internals ###
 
