@@ -1,7 +1,7 @@
 name = "HeaderREPLs"
 uuid = "54d51984-71c9-52bd-8df9-6718e63e4153"
 authors = ["Tim Holy <tim.holy@gmail.com>"]
-version = "0.2.1"
+version = "0.3.0"
 
 [deps]
 REPL = "3fa0cd96-eef1-5676-8a61-b3b8758bbffb"
