@@ -44,11 +44,14 @@ mutable struct HeaderREPL{H<:AbstractHeader} <: AbstractREPL
     mistate::Union{MIState,Nothing}
     interface::ModalInterface
     backendref::REPLBackendRef
+
+    HeaderREPL{H}(t,header,hascolor,prompt_color,input_color,answer_color,history_file,envcolors,waserror,specialdisplay,options,mistate,interface) where H =
+        new{H}(t,header,hascolor,prompt_color,input_color,answer_color,history_file,envcolors,waserror,specialdisplay,options,mistate,interface)
 end
 
 ## HeaderREPL is meant to integrate with LineEditREPL
-HeaderREPL(main_repl::LineEditREPL, header::H) where H =
-    HeaderREPL{H}(
+function HeaderREPL(main_repl::LineEditREPL, header::H) where H
+    repl = HeaderREPL{H}(
         terminal(main_repl),
         header,
         main_repl.hascolor,
@@ -61,9 +64,12 @@ HeaderREPL(main_repl::LineEditREPL, header::H) where H =
         main_repl.specialdisplay,
         main_repl.options,
         main_repl.mistate,
-        main_repl.interface,
-        main_repl.backendref,
-    )
+        main_repl.interface)
+    if isdefined(main_repl, :backendref)
+        repl.backendref = main_repl.backendref
+    end
+    return repl
+end
 
 const msgs = []  # debugging
 
